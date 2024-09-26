@@ -13,7 +13,8 @@ public class GetQuotaTableHandler(
     CosmosClient cosmosClient, 
     IOptions<CosmosSettings> cosmosSettings,
     ILogger<BaseQuotaCollectionQuery<GetQuotaTable, QuotaTable>> logger) 
-    : BaseQuotaCollectionQuery<GetQuotaTable, QuotaTable>(cosmosClient, cosmosSettings, logger) {
+    : BaseQuotaCollectionQuery<GetQuotaTable, QuotaTable>(cosmosClient, cosmosSettings, logger) 
+{
     protected override async Task<QuotaTable> HandleQueryAsync(GetQuotaTable request, CancellationToken cancellationToken)
     {
         var (id, projectId, quotaTableName) = request;
