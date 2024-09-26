@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>event_sourced_quota</RootNamespace>
+    <UserSecretsId>72f7c4a7-6188-43e5-b0f3-8700fd2736ed</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Application\Application.csproj" />
+    <ProjectReference Include="..\Data\Data.csproj" />
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+  </ItemGroup>
+
+</Project>
