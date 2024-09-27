@@ -31,7 +31,7 @@ public abstract class BaseQuotaCollectionQuery<TRequest, TResponse>(
            .Build();
 
     protected void LogRequestCharge(string className, double requestCharge)
-        => Logger.LogInformation("{ClassName}: Retrieved race event. Request charge: {RequestCharge}",
+        => Logger.LogInformation("{ClassName}: Retrieved item. Request charge: {RequestCharge}",
                                  className,
                                  requestCharge);
 }

@@ -42,7 +42,7 @@ public class GetQuotaTableCellsHandler(
                        .Skip(pageNumber * pageSize)
                        .ToFeedIterator();
 
-        while (iterator.HasMoreResults)
+        while (iterator.HasMoreResults && quotaCells.Count != pageSize)
         {
             var response = await iterator.ReadNextAsync(cancellationToken);
 
