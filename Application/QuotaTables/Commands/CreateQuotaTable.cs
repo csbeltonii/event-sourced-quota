@@ -76,9 +76,13 @@ public class CreateQuotaTableHandler(
         string quotaTableName,
         string requestedBy)
     {
+        var rowNumber = 1;
+
         while (count > 0)
         {
-            yield return new QuotaCell(quotaTableName, projectId, requestedBy);
+            yield return new QuotaCell($"Q1.R{rowNumber}.isSelected", quotaTableName, projectId, requestedBy);
+
+            rowNumber++;
             count--;
         }
     }
