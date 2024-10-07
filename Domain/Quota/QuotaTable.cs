@@ -10,12 +10,15 @@ public class QuotaTable(string quotaTableName, string projectId, string userId) 
     private QuotaTable() : this(string.Empty, string.Empty, string.Empty) { }
     public override string DocumentType => DocumentTypes.QuotaTable;
 
+    public new string Id => $"{ProjectId}@{QuotaTableName}";
     public string QuotaTableName { get; set; } = quotaTableName;
     public string ProjectId { get; set; } = projectId;
 
     public long Active { get; set; }
     public long Complete { get; set; }
     public long Overage { get; set; }
+
+    public int CellCount { get; set; }
 
     public override void Apply(IDomainEvent @event)
     {

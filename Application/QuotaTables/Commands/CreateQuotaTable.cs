@@ -19,11 +19,9 @@ public class CreateQuotaTableHandler(
     CosmosClient cosmosClient,
     ILogger<CreateQuotaTableHandler> logger,
     IOptions<CosmosSettings> cosmosSettings)
-    : IRequestHandler<CreateQuotaTable, QuotaTable>
+    : BaseQuotaCommandHandler<CreateQuotaTable, QuotaTable>(cosmosClient, cosmosSettings, logger)
 {
-    private readonly Container _container = cosmosClient.GetContainer(cosmosSettings.Value.QuotaTableDatabase, cosmosSettings.Value.QuotaTableContainer);
-
-    public async Task<QuotaTable> Handle(CreateQuotaTable request, CancellationToken cancellationToken)
+    protected override async Task<QuotaTable> HandleCommandAsync(CreateQuotaTable request, CancellationToken cancellationToken)
     {
         var (projectId, quotaTableName, cellCount, requestedBy) = request;
         var partitionKey = new PartitionKeyBuilder()
@@ -33,14 +31,14 @@ public class CreateQuotaTableHandler(
 
         var quotaTable = new QuotaTable(quotaTableName, projectId, requestedBy);
         var quotaTableCellBatches = BatchCells(GenerateQuotaCells(cellCount, projectId, quotaTableName, requestedBy), 50);
-        var createTableResponse = await _container.CreateItemAsync(quotaTable, partitionKey, cancellationToken: cancellationToken);
+        var createTableResponse = await Container.CreateItemAsync(quotaTable, partitionKey, cancellationToken: cancellationToken);
 
         if (createTableResponse.StatusCode is not HttpStatusCode.Created)
         {
             throw new GenericQuotaException("Unable to create quota table.");
         }
 
-        logger.LogInformation(
+        Logger.LogInformation(
             "{ClassName}: Created quota table {QuotaTableName} in {Time}ms. Request Charge: {RequestCharge}",
             nameof(CreateQuotaTableHandler),
             quotaTableName,
@@ -53,11 +51,11 @@ public class CreateQuotaTableHandler(
             cancellationToken,
             async (batch, ctx) =>
             {
-                var transaction = _container.CreateTransactionalBatch(partitionKey);
+                var transaction = Container.CreateTransactionalBatch(partitionKey);
                 _ = batch.Select(quotaCell => transaction.CreateItem(quotaCell)).ToList();
                 var batchTransactionResponse = await transaction.ExecuteAsync(cancellationToken);
 
-                logger.LogInformation(
+                Logger.LogInformation(
                     "{ClassName}: Committed cell batch for {QuotaTableName} in {Time}ms. Request Charge: {RequestCharge}",
                     nameof(CreateQuotaTableHandler),
                     quotaTableName,
@@ -80,7 +78,7 @@ public class CreateQuotaTableHandler(
 
         while (count > 0)
         {
-            yield return new QuotaCell($"Q1.R{rowNumber}.isSelected", quotaTableName, projectId, requestedBy);
+            yield return new QuotaCell($"E{rowNumber}", $"Q1.R{rowNumber}.isSelected", quotaTableName, projectId, requestedBy);
 
             rowNumber++;
             count--;
