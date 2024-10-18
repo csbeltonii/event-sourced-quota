@@ -19,6 +19,9 @@ public enum ExecutionMode
     [EnumMember(Value = "point-read")]
     PointRead,
 
+    [EnumMember(Value = "point-read-many")]
+    PointReadMany,
+
     [EnumMember(Value = "iterator")]
     Iterator
 }
@@ -57,8 +60,19 @@ public class SetCellsHandler(
                 partitionKey,
                 cancellationToken
             ),
-            ExecutionMode.PointRead => throw new NotImplementedException(),
-            _                       => throw new ArgumentOutOfRangeException()
+            ExecutionMode.PointRead => await GetQuotaCellsByPointReadAsync(
+                projectId, 
+                quotaTableName,
+                coordinates, 
+                partitionKey,
+                cancellationToken),
+            ExecutionMode.PointReadMany => await GetQuotaCellsByPointReadManyAsync(
+                projectId,
+                quotaTableName,
+                coordinates,
+                partitionKey,
+                cancellationToken),
+            _                           => throw new ArgumentOutOfRangeException()
         };
 
         _ = quotaCells.Select(
@@ -80,6 +94,24 @@ public class SetCellsHandler(
         }
 
         return Result.Success();
+    }
+
+    private async Task<List<QuotaCell>> GetQuotaCellsByPointReadManyAsync(
+        string projectId,
+        string quotaTableName,
+        IReadOnlyList<string> coordinates, 
+        PartitionKey partitionKey,
+        CancellationToken cancellationToken)
+    {
+        var coordinateIds = coordinates
+                            .Select(coordinate => ($"{projectId}@{quotaTableName}@{coordinate}", partitionKey))
+                            .ToList();
+
+        var feedResponse = await Container.ReadManyItemsAsync<QuotaCell>(coordinateIds, cancellationToken: cancellationToken);
+
+        LogTotalRequestCharge(nameof(GetQuotaCellsByPointReadAsync), feedResponse.RequestCharge);
+
+        return feedResponse.ToList();
     }
 
     private async Task<List<QuotaCell>> GetQuotaCellsByQueryAsync(
@@ -118,10 +150,51 @@ public class SetCellsHandler(
 
     private async Task<List<QuotaCell>> GetQuotaCellsByPointReadAsync(
         string projectId,
+        string quotaTableName,
         IReadOnlyList<string> coordinates,
         PartitionKey partitionKey,
         CancellationToken cancellationToken)
     {
-        
+        var totalRuCost = 0.00;
+        var totalCalculationSemaphore = new SemaphoreSlim(initialCount: 1, maxCount: 1);
+
+        var queries = coordinates
+            .Select(
+                async coordinate =>
+                {
+                    var id = $"{projectId}@{quotaTableName}@{coordinate}";
+                    var response = await Container.ReadItemAsync<QuotaCell>(
+                        id,
+                        partitionKey,
+                        cancellationToken: cancellationToken
+                    );
+
+                    try
+                    {
+                        await totalCalculationSemaphore.WaitAsync(cancellationToken);
+                        totalRuCost += response.RequestCharge;
+                    }
+                    finally
+                    {
+                        totalCalculationSemaphore.Release();
+                    }
+
+                    return response;
+                }
+            );
+
+        var result =  await Task.WhenAll(queries);
+
+        LogTotalRequestCharge(nameof(GetQuotaCellsByPointReadAsync), totalRuCost);
+
+        return result.Select(item => item.Resource).ToList();
     }
+
+    private void LogTotalRequestCharge(string methodName, double requestCharge) =>
+        Logger.LogInformation(
+            "{ClassName}: {MethodName} completed. Total RU charge: {RequestCharge}",
+            nameof(SetCells),
+            methodName,
+            requestCharge
+        );
 }
