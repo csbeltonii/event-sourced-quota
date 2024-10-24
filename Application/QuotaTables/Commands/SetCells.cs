@@ -1,6 +1,9 @@
 ﻿using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
+using Application.Extensions;
+using Application.Models;
 using Application.QuotaTables.Exceptions;
+using Azure;
 using Data.Models;
 using Domain;
 using Domain.Quota;
@@ -35,6 +38,7 @@ public record SetCells(
 public class SetCellsHandler(
     CosmosClient cosmosClient,
     IOptions<CosmosSettings> cosmosSettings,
+    IOptionsMonitor<BatchingSettings> batchSettings,
     ILogger<BaseQuotaCommandHandler<SetCells, Result>> logger) 
     : BaseQuotaCommandHandler<SetCells, Result>(cosmosClient, cosmosSettings, logger) 
 {
@@ -45,12 +49,17 @@ public class SetCellsHandler(
         var transaction = Container.CreateTransactionalBatch(partitionKey);
 
         var getQuotaTable = await Container.ReadItemAsync<QuotaTable>(
-            id: $"{projectId}/{quotaTableName}",
+            id: $"{projectId}@{quotaTableName}",
             partitionKey,
             cancellationToken: cancellationToken
         );
 
         var quotaTable = getQuotaTable.Resource;
+
+        if (coordinates.Count > quotaTable.CellCount)
+        {
+            return Result.Failure("More coordinates requested to be set than exist on the table.");
+        }
 
         var quotaCells = executionMode switch
         {
@@ -75,23 +84,50 @@ public class SetCellsHandler(
             _                           => throw new ArgumentOutOfRangeException()
         };
 
-        _ = quotaCells.Select(
-            quotaCell =>
-            {
-                quotaCell.Active++;
-                quotaTable.Active++;
-
-                return transaction.UpsertItem(quotaCell);
-            });
-
+        quotaTable.Active++;
         transaction.UpsertItem(quotaTable);
+        var quotaTableUpdateResponse = await transaction.ExecuteAsync(cancellationToken);
 
-        var response = await transaction.ExecuteAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
+        if (!quotaTableUpdateResponse.IsSuccessStatusCode)
         {
-            throw new GenericQuotaException("Unable to execute set quota cells transaction.");
+            throw new GenericQuotaException("Unable to save quota table.");
         }
+
+        logger.LogInformation(
+            "{ClassName}: Successfully updated quota table {QuotaTableName}",
+            nameof(SetCells),
+            quotaTableName
+        );
+
+        var batches = quotaCells.BatchCells(batchSettings.CurrentValue.BatchSize);
+
+        await Parallel.ForEachAsync(
+            batches,
+            cancellationToken,
+            async (batch, ctx) =>
+            {
+                var batchTransaction = Container.CreateTransactionalBatch(partitionKey);
+
+                var transactionList = batch.Select(
+                             quotaCell =>
+                             {
+                                 quotaCell.Active++;
+
+                                 return batchTransaction.UpsertItem(quotaCell);
+                             })
+                         .ToList();
+
+                logger.LogInformation(
+                    "{ClassName}: Processing batch with {BatchSize} transactions.",
+                    nameof(SetCells),
+                    transactionList.Count
+                );
+
+                var response = await batchTransaction.ExecuteAsync(ctx);
+                LogTotalRequestCharge(nameof(HandleCommandAsync), response.RequestCharge);
+            }
+        );
+
 
         return Result.Success();
     }
@@ -120,6 +156,8 @@ public class SetCellsHandler(
         PartitionKey partitionKey,
         CancellationToken cancellationToken)
     {
+        var totalRuCost = 0.00;
+
         var cellQueryIterator = Container.GetItemLinqQueryable<QuotaCell>(
                                              requestOptions: new QueryRequestOptions
                                              {
@@ -142,8 +180,12 @@ public class SetCellsHandler(
         {
             var batch = await cellQueryIterator.ReadNextAsync(cancellationToken);
 
+            totalRuCost += batch.RequestCharge;
+
             quotaCells.AddRange(batch);
         }
+
+        LogTotalRequestCharge(nameof(GetQuotaCellsByQueryAsync), totalRuCost);
 
         return quotaCells;
     }

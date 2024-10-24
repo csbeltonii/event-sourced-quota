@@ -1,4 +1,6 @@
 ﻿using System.Net;
+using Application.Extensions;
+using Application.Models;
 using Application.QuotaTables.Exceptions;
 using Data.Models;
 using Domain.Quota;
@@ -18,7 +20,8 @@ public record CreateQuotaTable(
 public class CreateQuotaTableHandler(
     CosmosClient cosmosClient,
     ILogger<CreateQuotaTableHandler> logger,
-    IOptions<CosmosSettings> cosmosSettings)
+    IOptions<CosmosSettings> cosmosSettings,
+    IOptionsMonitor<BatchingSettings> batchSize)
     : BaseQuotaCommandHandler<CreateQuotaTable, QuotaTable>(cosmosClient, cosmosSettings, logger)
 {
     protected override async Task<QuotaTable> HandleCommandAsync(CreateQuotaTable request, CancellationToken cancellationToken)
@@ -29,8 +32,15 @@ public class CreateQuotaTableHandler(
                            .Add(quotaTableName)
                            .Build();
 
-        var quotaTable = new QuotaTable(quotaTableName, projectId, requestedBy);
-        var quotaTableCellBatches = BatchCells(GenerateQuotaCells(cellCount, projectId, quotaTableName, requestedBy), 50);
+        var quotaTable = new QuotaTable(quotaTableName, projectId, requestedBy)
+        {
+            SchemaVersion = 1,
+            CellCount = cellCount
+        };
+
+        var quotaTableCellBatches = GenerateQuotaCells(cellCount, projectId, quotaTableName, requestedBy)
+            .BatchCells(batchSize.CurrentValue.BatchSize);
+
         var createTableResponse = await Container.CreateItemAsync(quotaTable, partitionKey, cancellationToken: cancellationToken);
 
         if (createTableResponse.StatusCode is not HttpStatusCode.Created)
@@ -78,28 +88,13 @@ public class CreateQuotaTableHandler(
 
         while (count > 0)
         {
-            yield return new QuotaCell($"E{rowNumber}", $"Q1.R{rowNumber}.isSelected", quotaTableName, projectId, requestedBy);
+            yield return new QuotaCell($"E{rowNumber}", $"Q1.R{rowNumber}.isSelected", quotaTableName, projectId, requestedBy)
+            {
+                SchemaVersion = 1
+            };
 
             rowNumber++;
             count--;
-        }
-    }
-
-    private static IEnumerable<IEnumerable<QuotaCell>> BatchCells(IEnumerable<QuotaCell> quotaCells, int batchSize)
-    {
-        var batch = new List<QuotaCell>(batchSize);
-
-        foreach (var cell in quotaCells)
-        {
-            batch.Add(cell);
-
-            if (batch.Count != batchSize)
-            {
-                continue;
-            }
-
-            yield return batch;
-            batch = [];
         }
     }
 }

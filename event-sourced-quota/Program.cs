@@ -8,7 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 var configuration = builder.Configuration;
 
 // Add services to the container.
-builder.Services.AddApplicationServices();
+builder.Services.AddApplicationServices(configuration);
 builder.Services.AddRepositories(configuration, [new TargetJsonConverter()]);
 
 builder.Services.AddControllers()
