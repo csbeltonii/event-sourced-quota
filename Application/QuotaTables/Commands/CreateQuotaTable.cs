@@ -88,7 +88,7 @@ public class CreateQuotaTableHandler(
 
         while (count > 0)
         {
-            yield return new QuotaCell($"E{rowNumber}", $"Q1.R{rowNumber}.isSelected", quotaTableName, projectId, requestedBy)
+            yield return new QuotaCell($"E{rowNumber}", $"Q1.Choices.R{rowNumber}.isSelected", quotaTableName, projectId, requestedBy)
             {
                 SchemaVersion = 1
             };
